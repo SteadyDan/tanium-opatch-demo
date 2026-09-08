@@ -1,0 +1,14 @@
+[Unit]
+Description=Simulated Oracle Database instance (lab stand-in for OPatch demos)
+After=network.target
+
+[Service]
+Type=simple
+User=oracle
+Group=oinstall
+Environment=ORACLE_HOME=/u01/app/oracle/product/19/dbhome_1
+ExecStart=/bin/sh -c 'echo "oracle-db-sim up, pid $$"; while :; do sleep 60; done'
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,268 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# opatch — stand-in for Oracle OPatch, for lab demonstrations only.
+#
+# Mimics the CLI contract and exit codes the orchestration layer depends on:
+#   opatch version
+#   opatch lsinventory
+#   opatch prereq CheckConflictAgainstOHWithDetail -ph <patch dir>
+#   opatch apply -silent [-ocmrf <file>]      (run from inside the patch dir)
+#   opatch rollback -id <patch id> -silent
+#
+# Exit codes (match the ones you see from the real tool):
+#   0   success
+#   1   generic failure (wrong user, DB still running, patch not present...)
+#   73  prerequisite / conflict check failed
+#
+# Behaviour hooks for demos:
+#   FORCE_CONFLICT file in the patch dir or $ORACLE_HOME  -> prereq and apply return 73
+#   OPATCH_SIM_SERVICE env (default oracle-db-sim.service) -> apply/rollback refuse
+#                                                            while the service is running
+#
+# Strict POSIX sh: no bashisms, so it runs unchanged under Solaris /bin/sh.
+# ---------------------------------------------------------------------------
+
+OPATCH_VERSION="12.2.0.1.42"
+ORACLE_HOME="${ORACLE_HOME:-/u01/app/oracle/product/19/dbhome_1}"
+INVENTORY="$ORACLE_HOME/inventory/interim_patches.txt"
+LOGDIR="$ORACLE_HOME/cfgtoollogs/opatch"
+SERVICE="${OPATCH_SIM_SERVICE:-oracle-db-sim.service}"
+STAMP=$(date -u +%Y-%m-%d_%H-%M-%S)
+LOGFILE="$LOGDIR/opatch${STAMP}.log"
+
+# ---- helpers ---------------------------------------------------------------
+say() { printf '%s\n' "$*"; [ -w "$LOGDIR" ] && printf '%s\n' "$*" >> "$LOGFILE"; }
+
+banner() {
+  say "Oracle Interim Patch Installer version $OPATCH_VERSION"
+  say "Copyright (c) 2026, Oracle Corporation.  All rights reserved.  (SIMULATED)"
+  say ""
+  say "Oracle Home       : $ORACLE_HOME"
+  say "Central Inventory : /u01/app/oraInventory"
+  say "OPatch version    : $OPATCH_VERSION"
+  say "Log file location : $LOGFILE"
+  say ""
+}
+
+refuse_root() {
+  if [ "$(id -un)" = "root" ]; then
+    say "OPatch cannot continue because it is being run as root."
+    say "Run OPatch as the Oracle software owner."
+    say "OPatch failed with error code 1"
+    exit 1
+  fi
+}
+
+# Is the simulated database service running? Mirrors the real check for
+# active executables holding Oracle Home files open.
+svc_is_active() {
+  if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    systemctl is-active --quiet "$SERVICE"
+  elif command -v svcs >/dev/null 2>&1; then
+    [ "$(svcs -H -o state "$SERVICE" 2>/dev/null)" = "online" ]
+  else
+    # pidfile fallback for containers / minimal test rigs
+    pf="/var/run/${SERVICE%.service}.pid"
+    [ -f "$pf" ] && kill -0 "$(cat "$pf")" 2>/dev/null
+  fi
+}
+
+conflict_forced() {
+  [ -f "$1/FORCE_CONFLICT" ] || [ -f "$ORACLE_HOME/FORCE_CONFLICT" ]
+}
+
+patch_id_from_dir() {
+  # Real patches carry etc/config/inventory.xml; fall back to the dir name.
+  d="$1"
+  if [ -f "$d/etc/config/inventory.xml" ]; then
+    sed -n 's/.*<patch_id>\([0-9]*\)<\/patch_id>.*/\1/p' "$d/etc/config/inventory.xml" | head -n 1
+  else
+    basename "$d"
+  fi
+}
+
+is_applied() { grep -q "^$1|" "$INVENTORY" 2>/dev/null; }
+
+# ---- sub-commands ------------------------------------------------------------
+cmd_version() { printf 'OPatch Version: %s\n\nOPatch succeeded.\n' "$OPATCH_VERSION"; exit 0; }
+
+cmd_lsinventory() {
+  refuse_root
+  banner
+  say "Lsinventory Output file location : $LOGDIR/lsinv/lsinventory${STAMP}.txt"
+  say "--------------------------------------------------------------------------------"
+  say "Local Machine Information::"
+  say "Hostname: $(hostname)"
+  say "ARU platform id: 226"
+  say "ARU platform description:: Linux x86-64 (simulated)"
+  say ""
+  say "Installed Top-level Products (1): "
+  say "Oracle Database 19c                                                  19.0.0.0.0"
+  say ""
+  n=$(grep -c . "$INVENTORY" 2>/dev/null); [ -n "$n" ] || n=0
+  say "Interim patches ($n) :"
+  say ""
+  if [ "$n" -gt 0 ]; then
+    while IFS='|' read -r pid applied_on desc; do
+      say "Patch  $pid     : applied on $applied_on"
+      say "Unique Patch ID:  $pid"
+      say "Patch description:  \"$desc\""
+      say ""
+    done < "$INVENTORY"
+  fi
+  say "--------------------------------------------------------------------------------"
+  say ""
+  say "OPatch succeeded."
+  exit 0
+}
+
+cmd_prereq() {
+  refuse_root
+  check="$1"; shift
+  phdir="."
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -ph) phdir="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  phdir=$(cd "$phdir" 2>/dev/null && pwd) || { say "Patch location '$phdir' not found."; say "OPatch failed with error code 1"; exit 1; }
+  pid=$(patch_id_from_dir "$phdir")
+  banner
+  say "Invoking prereq \"$check\""
+  say "Patch ID: $pid"
+  say ""
+  if conflict_forced "$phdir"; then
+    say "ZOP-40: The patch(es) has conflicts with other patches installed in the Oracle Home (or) among themselves."
+    say "Conflicts/Supersets for each patch are:"
+    say ""
+    say "Patch : $pid"
+    say "        Conflict with 29585399"
+    say "        Conflict details:"
+    say "        $ORACLE_HOME/lib/libserver19.a:kzu/kzu.o"
+    say ""
+    say "Prereq \"$check\" failed."
+    say ""
+    say "OPatch failed with error code 73"
+    exit 73
+  fi
+  if is_applied "$pid"; then
+    say "Patch $pid is already applied to this Oracle Home."
+  fi
+  say "Prereq \"$check\" passed."
+  say ""
+  say "OPatch succeeded."
+  exit 0
+}
+
+cmd_apply() {
+  refuse_root
+  silent=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -silent) silent=1; shift ;;
+      -ocmrf) shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  phdir=$(pwd)
+  pid=$(patch_id_from_dir "$phdir")
+  banner
+  say "Verifying environment and performing prerequisite checks..."
+  if [ "$silent" -ne 1 ]; then
+    say "Interactive mode is not supported in this simulator; use -silent."
+    say "OPatch failed with error code 1"
+    exit 1
+  fi
+  if conflict_forced "$phdir"; then
+    say "Prerequisite check \"CheckConflictAgainstOracleHome\" failed."
+    say "OPatch failed with error code 73"
+    exit 73
+  fi
+  if svc_is_active; then
+    say "Following active executables are not used by opatch process :"
+    say "$ORACLE_HOME/bin/oracle  (service $SERVICE is online)"
+    say "Shut down all Oracle instances and the listener before applying this patch."
+    say "OPatch failed with error code 1"
+    exit 1
+  fi
+  if is_applied "$pid"; then
+    say "The following patch(es) are already installed in the Oracle Home."
+    say "[$pid]"
+    say "OPatch succeeded."
+    exit 0
+  fi
+  say "OPatch continues with these patches:   $pid"
+  say ""
+  say "Do you want to proceed? [y|n]"
+  say "Y (auto-answered by -silent option)"
+  say "User Responded with: Y"
+  say "All checks passed."
+  say ""
+  say "Backing up files..."
+  sleep 1
+  say "Applying interim patch '$pid' to OH '$ORACLE_HOME'"
+  say ""
+  say "Patching component oracle.rdbms, 19.0.0.0.0..."
+  sleep 1
+  say "Patching component oracle.rdbms.rsf, 19.0.0.0.0..."
+  sleep 1
+  mkdir -p "$(dirname "$INVENTORY")"
+  desc="Database Release Update : 19.24.0.0.240716 (SIMULATED)"
+  printf '%s|%s|%s\n' "$pid" "$(date -u '+%a %b %d %H:%M:%S UTC %Y')" "$desc" >> "$INVENTORY"
+  say "Patch $pid successfully applied."
+  say "Log file location: $LOGFILE"
+  say ""
+  say "OPatch succeeded."
+  exit 0
+}
+
+cmd_rollback() {
+  refuse_root
+  pid=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -id) pid="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  banner
+  [ -n "$pid" ] || { say "Missing -id <patch id>"; say "OPatch failed with error code 1"; exit 1; }
+  if ! is_applied "$pid"; then
+    say "Patch $pid is not present in the Oracle Home."
+    say "OPatch failed with error code 1"
+    exit 1
+  fi
+  if svc_is_active; then
+    say "Following active executables are not used by opatch process :"
+    say "$ORACLE_HOME/bin/oracle  (service $SERVICE is online)"
+    say "OPatch failed with error code 1"
+    exit 1
+  fi
+  say "RollbackSession rolling back interim patch '$pid' from OH '$ORACLE_HOME'"
+  say ""
+  say "Patching component oracle.rdbms, 19.0.0.0.0..."
+  sleep 1
+  tmp="$INVENTORY.tmp.$$"
+  grep -v "^$pid|" "$INVENTORY" > "$tmp"; mv "$tmp" "$INVENTORY"
+  say "RollbackSession removing interim patch '$pid' from inventory"
+  say "Log file location: $LOGFILE"
+  say ""
+  say "OPatch succeeded."
+  exit 0
+}
+
+# ---- dispatch ------------------------------------------------------------------
+mkdir -p "$LOGDIR" 2>/dev/null
+cmd="$1"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  version)      cmd_version ;;
+  lsinventory)  cmd_lsinventory ;;
+  prereq)       cmd_prereq "$@" ;;
+  apply)        cmd_apply "$@" ;;
+  rollback)     cmd_rollback "$@" ;;
+  *)
+    printf 'Usage: opatch version | lsinventory | prereq <check> -ph <dir> | apply -silent | rollback -id <id> -silent\n' >&2
+    printf 'OPatch failed with error code 1\n' >&2
+    exit 1 ;;
+esac
