@@ -11,7 +11,10 @@
 STEP=stage
 . "$(dirname "$0")/lib.sh"
 
-ZIP="p${PATCH_ID}_190000_Linux-x86-64.zip"
+# Accept any platform suffix: p<id>_<release>_<Linux-x86-64|SOLARIS64|...>.zip
+ZIP=""
+for f in "p${PATCH_ID}_"*.zip; do [ -f "$f" ] && { ZIP="$f"; break; }; done
+[ -n "$ZIP" ] || ZIP="p${PATCH_ID}_190000_Linux-x86-64.zip"
 DEST="$STAGE_ROOT/$PATCH_ID"
 
 log "begin: patch $PATCH_ID, cwd $(pwd), current state $(get_state)"

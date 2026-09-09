@@ -4,7 +4,8 @@ Emulates Tanium orchestrating Oracle OPatch on Solaris, using an Ubuntu VM and a
 
 ```
 opatch-kit/
-├── endpoint/   prep_endpoint.sh, opatch (stub), oracle-db-sim.service
+├── endpoint/   prep_endpoint.sh, opatch (stub), oracle-db-sim.service, reset_demo.sh
+│   └── solaris/ prep_solaris.sh, oracle-db-sim.xml (SMF manifest), oracle-db-sim (method)
 ├── patch/      build_patch_zip.sh  → dist/p12345678_190000_Linux-x86-64.zip (+ .sha256)
 ├── packages/   lib.sh, stage.sh, prereq.sh, apply.sh, rollback.sh, PACKAGE-DEFINITIONS.md
 ├── sensor/     oracle_patch_state.sh, SENSOR-DEFINITION.md
@@ -57,3 +58,24 @@ Endpoint-side artefacts to open if asked: `/var/opt/oracle_patch/orchestrator.lo
 - Service control switches to `svcadm disable -s` / `enable -s`; set `ORACLE_SERVICE=svc:/application/oracle/db:default` in the package command or `lib.sh`.
 - Checksum switches to `digest -a sha256` automatically.
 - Replace the stub with the real `$ORACLE_HOME/OPatch/opatch` and the four package scripts are production candidates, subject to timeouts and a datapatch step.
+
+## Running the same demo on a Solaris test box
+
+The stub, the payload and the four packages are identical. Only endpoint prep differs.
+
+1. Tanium Client for Solaris installed and reporting. `unzip` present (`pkg install unzip` on Solaris 11).
+2. Get `endpoint/opatch` and the three files in `endpoint/solaris/` onto the box. Either
+   `curl -sL https://github.com/SteadyDan/tanium-opatch-demo/archive/refs/heads/main.tar.gz | gunzip | tar xf -`
+   or ship them as a Tanium package (`Oracle OPatch - 0 Prep Solaris`, four remote files, command
+   `/bin/sh prep_solaris.sh`).
+3. `sudo sh prep_solaris.sh` (or as root). It creates `oracle`/`oinstall`, `ORACLE_HOME`, installs the stub,
+   imports `svc:/application/oracle-db-sim` into SMF and brings it online. Smoke test at the end.
+4. Console: edit sensor `EPX - Oracle Patch State`, tick Solaris, paste the same script.
+5. Nothing else changes. Packages call `/bin/sh`, `lib.sh` picks `svcadm`/`svcs` and `digest -a sha256` at run
+   time, and the service defaults to `oracle-db-sim` (the SMF name) when `svcadm` is present. The playbook
+   targets `State equals none`, so the Solaris box joins the next run on its own.
+
+Solaris 10: `/bin/sh` is the old Bourne shell and does not support `$(...)`. Use `/usr/xpg4/bin/sh <script>` as
+the package command for those endpoints, or target Solaris 11 only.
+
+`reset_demo.sh` handles both platforms.

@@ -20,7 +20,12 @@ STAGE_ROOT="${STAGE_ROOT:-/u01/stage}"
 STATE_DIR="${STATE_DIR:-/var/opt/oracle_patch}"
 STATE_FILE="$STATE_DIR/state"
 LOG_FILE="$STATE_DIR/orchestrator.log"
-SERVICE="${ORACLE_SERVICE:-oracle-db-sim.service}"
+# Default service name follows the platform: systemd unit on Linux, SMF
+# service on Solaris (svc:/application/oracle-db-sim:default). Override with
+# ORACLE_SERVICE for a real database service.
+if [ -n "${ORACLE_SERVICE:-}" ]; then SERVICE="$ORACLE_SERVICE"
+elif command -v svcadm >/dev/null 2>&1 && [ ! -d /run/systemd/system ]; then SERVICE="oracle-db-sim"
+else SERVICE="oracle-db-sim.service"; fi
 STEP="${STEP:-lib}"
 
 # Exit codes owned by the orchestrator (distinct from OPatch's 0/1/73)

@@ -26,7 +26,9 @@ OPATCH_VERSION="12.2.0.1.42"
 ORACLE_HOME="${ORACLE_HOME:-/u01/app/oracle/product/19/dbhome_1}"
 INVENTORY="$ORACLE_HOME/inventory/interim_patches.txt"
 LOGDIR="$ORACLE_HOME/cfgtoollogs/opatch"
-SERVICE="${OPATCH_SIM_SERVICE:-oracle-db-sim.service}"
+if [ -n "${OPATCH_SIM_SERVICE:-}" ]; then SERVICE="$OPATCH_SIM_SERVICE"
+elif command -v svcadm >/dev/null 2>&1 && [ ! -d /run/systemd/system ]; then SERVICE="oracle-db-sim"
+else SERVICE="oracle-db-sim.service"; fi
 STAMP=$(date -u +%Y-%m-%d_%H-%M-%S)
 LOGFILE="$LOGDIR/opatch${STAMP}.log"
 

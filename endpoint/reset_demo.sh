@@ -17,6 +17,9 @@ chown -R oracle:oinstall /u01
 if [ -d /run/systemd/system ]; then
   systemctl start oracle-db-sim.service
   systemctl is-active oracle-db-sim.service
+elif command -v svcadm >/dev/null 2>&1; then
+  svcadm enable -s oracle-db-sim
+  svcs -H -o state oracle-db-sim
 fi
 echo "state: $(cat /var/opt/oracle_patch/state)"
 echo "inventory entries: $(grep -c . "$ORACLE_HOME/inventory/interim_patches.txt" || true)"
