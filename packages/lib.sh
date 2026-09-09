@@ -13,6 +13,7 @@
 # States: none, staged, prereq_ok, applied, rolled_back, failed
 # ---------------------------------------------------------------------------
 
+have() { type "$1" >/dev/null 2>&1; }
 PATCH_ID="${1:-${PATCH_ID:-12345678}}"
 ORACLE_USER="${ORACLE_USER:-oracle}"
 ORACLE_HOME="${ORACLE_HOME:-/u01/app/oracle/product/19/dbhome_1}"
@@ -24,7 +25,7 @@ LOG_FILE="$STATE_DIR/orchestrator.log"
 # service on Solaris (svc:/application/oracle-db-sim:default). Override with
 # ORACLE_SERVICE for a real database service.
 if [ -n "${ORACLE_SERVICE:-}" ]; then SERVICE="$ORACLE_SERVICE"
-elif command -v svcadm >/dev/null 2>&1 && [ ! -d /run/systemd/system ]; then SERVICE="oracle-db-sim"
+elif have svcadm && [ ! -d /run/systemd/system ]; then SERVICE="oracle-db-sim"
 else SERVICE="oracle-db-sim.service"; fi
 STEP="${STEP:-lib}"
 
@@ -77,16 +78,16 @@ as_oracle() {
   # Run a command as the Oracle software owner with ORACLE_HOME and OPatch on PATH.
   # `su - user -c` is the same on Linux and Solaris.
   if [ "$(id -un)" = "$ORACLE_USER" ]; then
-    sh -c "export ORACLE_HOME='$ORACLE_HOME'; export PATH=\"\$PATH:$ORACLE_HOME/bin:$ORACLE_HOME/OPatch\"; $*"
+    sh -c "ORACLE_HOME='$ORACLE_HOME'; export ORACLE_HOME; PATH=\"\$PATH:$ORACLE_HOME/bin:$ORACLE_HOME/OPatch\"; export PATH; $*"
   else
-    su - "$ORACLE_USER" -c "export ORACLE_HOME='$ORACLE_HOME'; export PATH=\"\$PATH:$ORACLE_HOME/bin:$ORACLE_HOME/OPatch\"; $*"
+    su - "$ORACLE_USER" -c "ORACLE_HOME='$ORACLE_HOME'; export ORACLE_HOME; PATH=\"\$PATH:$ORACLE_HOME/bin:$ORACLE_HOME/OPatch\"; export PATH; $*"
   fi
 }
 
 # ---- service control: systemd -> SMF -> pidfile ------------------------------
 svc_mode() {
-  if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then echo systemd
-  elif command -v svcadm >/dev/null 2>&1; then echo smf
+  if [ -d /run/systemd/system ] && have systemctl; then echo systemd
+  elif have svcadm; then echo smf
   else echo pidfile; fi
 }
 
@@ -125,8 +126,8 @@ svc_start() {
 
 # ---- checksum: sha256sum (Linux) -> shasum -> digest (Solaris) ---------------
 sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
-  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
-  elif command -v digest >/dev/null 2>&1; then digest -a sha256 "$1"
+  if have sha256sum; then sha256sum "$1" | cut -d' ' -f1
+  elif have shasum; then shasum -a 256 "$1" | cut -d' ' -f1
+  elif have digest; then digest -a sha256 "$1"
   else echo "no-sha256-tool"; fi
 }

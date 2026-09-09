@@ -1,4 +1,12 @@
 #!/bin/sh
+# Solaris 10: /bin/sh is the 1989 Bourne shell (no $(...), grep has no -q, id
+# has no -un). Re-exec under the XPG4 POSIX shell with XPG4 tools first on
+# PATH before any modern syntax is parsed. Absent on Linux, so a no-op there.
+if [ -z "$EPX_POSIX" ] && [ -x /usr/xpg4/bin/sh ]; then
+  EPX_POSIX=1; export EPX_POSIX
+  PATH=/usr/xpg4/bin:$PATH; export PATH
+  exec /usr/xpg4/bin/sh "$0" ${1+"$@"}
+fi
 # Package: Oracle OPatch - 1 Stage
 # Command: /bin/sh stage.sh 12345678
 # Files:   stage.sh, lib.sh (local)
@@ -31,7 +39,7 @@ log "sha256 expected=$expected"
 log "sha256 actual  =$actual"
 [ "$expected" = "$actual" ] || fail "$RC_CHECKSUM" "checksum mismatch on $ZIP"
 
-command -v unzip >/dev/null 2>&1 || fail "$RC_MISSING" "unzip not installed"
+have unzip || fail "$RC_MISSING" "unzip not installed"
 mkdir -p "$STAGE_ROOT"
 rm -rf "$DEST"
 unzip -q -o "$ZIP" -d "$STAGE_ROOT" || fail 1 "unzip failed"

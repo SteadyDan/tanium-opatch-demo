@@ -13,7 +13,7 @@ opatch-kit/
 └── test/       run_local.sh (23 checks, runs under dash)
 ```
 
-All scripts are strict POSIX `sh` (shellcheck -s sh clean, tested under `dash`). `su - oracle -c`, service control and checksumming pick Linux or Solaris implementations at runtime, so the same files run on a Solaris 11 client unchanged.
+All scripts are strict POSIX `sh` (shellcheck -s sh clean, tested under `dash`). `su - oracle -c`, service control and checksumming pick Linux or Solaris implementations at runtime, so the same files run on a Solaris 10 or 11 client unchanged.
 
 ## Setup order
 
@@ -63,7 +63,7 @@ Endpoint-side artefacts to open if asked: `/var/opt/oracle_patch/orchestrator.lo
 
 The stub, the payload and the four packages are identical. Only endpoint prep differs.
 
-1. Tanium Client for Solaris installed and reporting. `unzip` present (`pkg install unzip` on Solaris 11).
+1. Tanium Client for Solaris installed and reporting (Solaris 10 or 11).
 2. Get `endpoint/opatch` and the three files in `endpoint/solaris/` onto the box. Either
    `curl -sL https://github.com/SteadyDan/tanium-opatch-demo/archive/refs/heads/main.tar.gz | gunzip | tar xf -`
    or ship them as a Tanium package (`Oracle OPatch - 0 Prep Solaris`, four remote files, command
@@ -75,7 +75,9 @@ The stub, the payload and the four packages are identical. Only endpoint prep di
    time, and the service defaults to `oracle-db-sim` (the SMF name) when `svcadm` is present. The playbook
    targets `State equals none`, so the Solaris box joins the next run on its own.
 
-Solaris 10: `/bin/sh` is the old Bourne shell and does not support `$(...)`. Use `/usr/xpg4/bin/sh <script>` as
-the package command for those endpoints, or target Solaris 11 only.
+Solaris 10 is supported as-is: `/bin/sh` there is the 1989 Bourne shell, so every entry script starts with a
+Bourne-syntax shim that re-execs itself under `/usr/xpg4/bin/sh` with `/usr/xpg4/bin` first on PATH (POSIX
+`grep -q`, `id -un`). On Linux that path does not exist and the shim does nothing, so the package command stays
+`/bin/sh <script>` everywhere. `unzip` is standard on Solaris 10 (`SUNWunzip`).
 
 `reset_demo.sh` handles both platforms.

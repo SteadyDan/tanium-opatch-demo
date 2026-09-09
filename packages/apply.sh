@@ -1,4 +1,12 @@
 #!/bin/sh
+# Solaris 10: /bin/sh is the 1989 Bourne shell (no $(...), grep has no -q, id
+# has no -un). Re-exec under the XPG4 POSIX shell with XPG4 tools first on
+# PATH before any modern syntax is parsed. Absent on Linux, so a no-op there.
+if [ -z "$EPX_POSIX" ] && [ -x /usr/xpg4/bin/sh ]; then
+  EPX_POSIX=1; export EPX_POSIX
+  PATH=/usr/xpg4/bin:$PATH; export PATH
+  exec /usr/xpg4/bin/sh "$0" ${1+"$@"}
+fi
 # Package: Oracle OPatch - 3 Apply
 # Command: /bin/sh apply.sh 12345678
 # Files:   apply.sh, lib.sh

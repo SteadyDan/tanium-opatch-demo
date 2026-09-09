@@ -1,4 +1,13 @@
 #!/bin/sh
+# Solaris 10: /bin/sh is the 1989 Bourne shell (no $(...), grep has no -q, id
+# has no -un). Re-exec under the XPG4 POSIX shell with XPG4 tools first on
+# PATH before any modern syntax is parsed. Absent on Linux, so a no-op there.
+if [ -z "$EPX_POSIX" ] && [ -x /usr/xpg4/bin/sh ]; then
+  EPX_POSIX=1; export EPX_POSIX
+  PATH=/usr/xpg4/bin:$PATH; export PATH
+  exec /usr/xpg4/bin/sh "$0" ${1+"$@"}
+fi
+have() { type "$1" >/dev/null 2>&1; }
 # ---------------------------------------------------------------------------
 # prep_solaris.sh — one-time lab setup on a Solaris 11 endpoint.
 # Run as root. Same outcome as prep_endpoint.sh on Ubuntu:
@@ -8,8 +17,7 @@
 #   svc:/application/oracle-db-sim (dummy DB instance, online)
 #
 # Expects opatch, oracle-db-sim.xml and oracle-db-sim (method) alongside it.
-# Solaris 11 /bin/sh is ksh93, so $(...) and $((...)) are fine. On Solaris 10
-# run the package commands with /usr/xpg4/bin/sh instead of /bin/sh.
+# Works on Solaris 10 and 11: the shim at the top re-execs under /usr/xpg4/bin/sh.
 # ---------------------------------------------------------------------------
 set -u
 
@@ -24,13 +32,16 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 [ -f "$STUB" ] || { echo "stub opatch not found next to this script"; exit 1; }
 
 echo "[prep] tools"
-command -v unzip >/dev/null 2>&1 || pkg install -q unzip || echo "[prep] WARNING: unzip missing; pkg install unzip"
+if ! have unzip; then
+  if [ -x /usr/bin/pkg ]; then pkg install -q unzip; else echo "[prep] WARNING: unzip missing (Solaris 10: pkgadd SUNWunzip)"; fi
+fi
 
 echo "[prep] users and groups"
 getent group oinstall >/dev/null || groupadd oinstall
 if ! getent passwd oracle >/dev/null; then
   # Solaris useradd needs an explicit home with -m
-  useradd -m -d /export/home/oracle -g oinstall -s /bin/sh -c "Oracle software owner (lab)" oracle
+  ORA_SHELL=/bin/sh; [ -x /usr/xpg4/bin/sh ] && ORA_SHELL=/usr/xpg4/bin/sh
+  useradd -m -d /export/home/oracle -g oinstall -s "$ORA_SHELL" -c "Oracle software owner (lab)" oracle
 fi
 ORA_HOME_DIR=$(getent passwd oracle | cut -d: -f6)
 
@@ -49,8 +60,8 @@ chmod 755 "$ORACLE_HOME/OPatch/opatch"
 
 PROFILE="$ORA_HOME_DIR/.profile"
 grep -q ORACLE_HOME "$PROFILE" 2>/dev/null || cat >> "$PROFILE" <<EOF
-export ORACLE_HOME=$ORACLE_HOME
-export PATH=\$PATH:\$ORACLE_HOME/bin:\$ORACLE_HOME/OPatch
+ORACLE_HOME=$ORACLE_HOME; export ORACLE_HOME
+PATH=\$PATH:\$ORACLE_HOME/bin:\$ORACLE_HOME/OPatch; export PATH
 EOF
 chown oracle:oinstall "$PROFILE"
 

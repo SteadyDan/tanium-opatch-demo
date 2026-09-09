@@ -1,4 +1,13 @@
 #!/bin/sh
+# Solaris 10: /bin/sh is the 1989 Bourne shell (no $(...), grep has no -q, id
+# has no -un). Re-exec under the XPG4 POSIX shell with XPG4 tools first on
+# PATH before any modern syntax is parsed. Absent on Linux, so a no-op there.
+if [ -z "$EPX_POSIX" ] && [ -x /usr/xpg4/bin/sh ]; then
+  EPX_POSIX=1; export EPX_POSIX
+  PATH=/usr/xpg4/bin:$PATH; export PATH
+  exec /usr/xpg4/bin/sh "$0" ${1+"$@"}
+fi
+have() { type "$1" >/dev/null 2>&1; }
 # ---------------------------------------------------------------------------
 # opatch — stand-in for Oracle OPatch, for lab demonstrations only.
 #
@@ -27,7 +36,7 @@ ORACLE_HOME="${ORACLE_HOME:-/u01/app/oracle/product/19/dbhome_1}"
 INVENTORY="$ORACLE_HOME/inventory/interim_patches.txt"
 LOGDIR="$ORACLE_HOME/cfgtoollogs/opatch"
 if [ -n "${OPATCH_SIM_SERVICE:-}" ]; then SERVICE="$OPATCH_SIM_SERVICE"
-elif command -v svcadm >/dev/null 2>&1 && [ ! -d /run/systemd/system ]; then SERVICE="oracle-db-sim"
+elif have svcadm && [ ! -d /run/systemd/system ]; then SERVICE="oracle-db-sim"
 else SERVICE="oracle-db-sim.service"; fi
 STAMP=$(date -u +%Y-%m-%d_%H-%M-%S)
 LOGFILE="$LOGDIR/opatch${STAMP}.log"
@@ -58,9 +67,9 @@ refuse_root() {
 # Is the simulated database service running? Mirrors the real check for
 # active executables holding Oracle Home files open.
 svc_is_active() {
-  if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+  if [ -d /run/systemd/system ] && have systemctl; then
     systemctl is-active --quiet "$SERVICE"
-  elif command -v svcs >/dev/null 2>&1; then
+  elif have svcs; then
     [ "$(svcs -H -o state "$SERVICE" 2>/dev/null)" = "online" ]
   else
     # pidfile fallback for containers / minimal test rigs

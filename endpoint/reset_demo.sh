@@ -1,4 +1,13 @@
 #!/bin/sh
+# Solaris 10: /bin/sh is the 1989 Bourne shell (no $(...), grep has no -q, id
+# has no -un). Re-exec under the XPG4 POSIX shell with XPG4 tools first on
+# PATH before any modern syntax is parsed. Absent on Linux, so a no-op there.
+if [ -z "$EPX_POSIX" ] && [ -x /usr/xpg4/bin/sh ]; then
+  EPX_POSIX=1; export EPX_POSIX
+  PATH=/usr/xpg4/bin:$PATH; export PATH
+  exec /usr/xpg4/bin/sh "$0" ${1+"$@"}
+fi
+have() { type "$1" >/dev/null 2>&1; }
 # reset_demo.sh — put the endpoint back to a clean 'none' state between demo runs.
 # Run as root. Keeps the oracle user, ORACLE_HOME and stub opatch; clears
 # patch inventory, staging, orchestrator state/logs and any conflict marker,
@@ -17,7 +26,7 @@ chown -R oracle:oinstall /u01
 if [ -d /run/systemd/system ]; then
   systemctl start oracle-db-sim.service
   systemctl is-active oracle-db-sim.service
-elif command -v svcadm >/dev/null 2>&1; then
+elif have svcadm; then
   svcadm enable -s oracle-db-sim
   svcs -H -o state oracle-db-sim
 fi
